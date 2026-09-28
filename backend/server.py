@@ -214,9 +214,15 @@ class Handler(BaseHTTPRequestHandler):
         raw_body=self.rfile.read(n) if path=="/api/stripe/webhook" else b""
         data={} if path=="/api/stripe/webhook" else json.loads(raw_body or b"{}")
         if path=="/api/register":
-            email=data.get("email","").strip().lower(); password=data.get("password","")
-            if not re.match(r"^[^@\s]+@[^@\s]+\.[^@\s]+$",email) or len(password)<8:
-                return self.send_json({"error":"invalid","message":("البريد الإلكتروني غير صحيح." if not re.match(r"^[^@\s]+@[^@\s]+\.[^@\s]+$",email) else "كلمة المرور وصلت بطول "+str(len(password))+" أحرف. يجب أن تكون 8 أحرف على الأقل.")},400)
+            email=str(data.get("email","") or "").strip().lower()
+            password=str(data.get("password","") or "")
+            email_ok=bool(email) and "@" in email and "." in email.rsplit("@",1)[-1] and " " not in email
+            if not email_ok or len(password)<8:
+                if not email_ok:
+                    msg="الخادم استلم بريدًا غير مكتمل. تأكد من كتابة البريد مثل name@example.com."
+                else:
+                    msg="كلمة المرور وصلت بطول "+str(len(password))+" أحرف. يجب أن تكون 8 أحرف على الأقل."
+                return self.send_json({"error":"invalid","message":msg},400)
             salt,digest=hash_password(password); c=db()
             try:
                 c.execute("insert into users(email,password_hash,salt,plan,created_at) values(?,?,?,?,?)",(email,digest,salt,"free",time.time())); c.commit()
@@ -305,7 +311,7 @@ class Handler(BaseHTTPRequestHandler):
     def do_GET(self):
         path=urllib.parse.urlparse(self.path).path
         if path=="/api/health": return self.send_json({"ok":True,"service":"SEO Autopilot"})
-        if path=="/api/version": return self.send_json({"ok":True,"version":"2026-09-28-601f7ff","commit":"601f7ffdb284ed7f6a31ace8e0ef64009220af2d"})
+        if path=="/api/version": return self.send_json({"ok":True,"version":"2026-09-28-authfix3","commit":"latest"})
         if path=="/api/me":
             u=current_user(self); return self.send_json({"user":u,"usage":usage(u["id"]) if u else 0,"plans":PLANS,"is_admin":bool(u and u["role"] in ("owner","admin")),"is_owner":bool(u and u["role"]=="owner")})
         if path.startswith("/api/audits"):
