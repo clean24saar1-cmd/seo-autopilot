@@ -6,9 +6,9 @@ body{margin:0;background:#071321;color:#eef6ff;font-family:system-ui,Tahoma,sans
 <section id="auth" class="card auth">
 <h2>حسابك في SEO Autopilot</h2>
 <p class="muted">الحساب المجاني محدود. اشترك لرفع حدود التحليل والوصول إلى أدوات SEO المتقدمة.</p>
-<div class="authgrid"><div><input id="email" type="email" placeholder="البريد الإلكتروني"><input id="password" type="password" placeholder="كلمة المرور (8 أحرف على الأقل)"><button class="btn" onclick="register()">إنشاء حساب مجاني</button></div><div><input id="loginEmail" type="email" placeholder="البريد الإلكتروني"><input id="loginPassword" type="password" placeholder="كلمة المرور"><button class="btn" onclick="login()">تسجيل الدخول</button></div></div>
+<div class="authgrid"><div><input id="email" type="email" placeholder="البريد الإلكتروني"><input id="password" type="password" placeholder="كلمة المرور (8 أحرف على الأقل)"><button id="registerBtn" type="button" class="btn">إنشاء حساب مجاني</button></div><div><input id="loginEmail" type="email" placeholder="البريد الإلكتروني"><input id="loginPassword" type="password" placeholder="كلمة المرور"><button id="loginBtn" type="button" class="btn">تسجيل الدخول</button></div></div>
 <div id="authMsg" class="err"></div>
-<div class="plans"><div class="plan"><h3>Starter</h3><strong>اشتراك</strong><p class="muted">30 تحليل/شهر · 25 صفحة لكل تحليل</p><button class="smallbtn" onclick="buy('starter')">اشترك</button></div><div class="plan"><h3>Pro</h3><strong>اشتراك</strong><p class="muted">150 تحليل/شهر · 100 صفحة لكل تحليل</p><button class="smallbtn" onclick="buy('pro')">اشترك</button></div><div class="plan"><h3>Agency</h3><strong>اشتراك</strong><p class="muted">500 تحليل/شهر · 250 صفحة لكل تحليل</p><button class="smallbtn" onclick="buy('agency')">اشترك</button></div></div>
+<div class="plans"><div class="plan"><h3>Starter</h3><strong>اشتراك</strong><p class="muted">30 تحليل/شهر · 25 صفحة لكل تحليل</p><button type="button" class="smallbtn planBtn" data-plan="starter">اشترك</button></div><div class="plan"><h3>Pro</h3><strong>اشتراك</strong><p class="muted">150 تحليل/شهر · 100 صفحة لكل تحليل</p><button type="button" class="smallbtn planBtn" data-plan="pro">اشترك</button></div><div class="plan"><h3>Agency</h3><strong>اشتراك</strong><p class="muted">500 تحليل/شهر · 250 صفحة لكل تحليل</p><button type="button" class="smallbtn planBtn" data-plan="agency">اشترك</button></div></div>
 </section>
 <section id="admin" class="card" style="display:none"><h2>👑 إدارة الموقع</h2><p class="muted">المالك يملك جميع الصلاحيات ويمكنه منح أي مستخدم وصولًا مجانيًا بلا حدود.</p><div id="users"></div></section>
 <section id="home" class="hero"><h1>اجعل موقعك <span>أقوى في البحث</span></h1><p>تحليل تقني مباشر واكتشاف فرص تحسين SEO في لوحة واحدة.</p><div class="search"><input id="url" value="https://example.com"><button class="btn" onclick="audit()">Analyze Website</button></div><div id="err" class="err"></div></section>
@@ -27,4 +27,16 @@ async function buy(plan){if(!ME){document.getElementById('authMsg').textContent=
 async function audit(){if(!ME){document.getElementById('authMsg').textContent='سجل الدخول أولاً.';return}const url=document.getElementById('url').value.trim();document.getElementById('err').textContent='جاري التحليل…';try{const r=await fetch('/api/audit',{method:'POST',headers:{'Content-Type':'application/json'},credentials:'same-origin',body:JSON.stringify({url})});const d=await r.json();if(d.error)throw Error(d.message||d.error);render(d)}catch(e){document.getElementById('err').textContent='تعذر التحليل: '+e.message}}
 function render(d){document.getElementById('home').style.display='none';document.getElementById('out').style.display='block';document.getElementById('score').textContent=d.score;document.getElementById('circle').style.setProperty('--score',d.score);document.getElementById('site').textContent=d.url;document.getElementById('pages').textContent=d.summary.pages;document.getElementById('issuesCount').textContent=d.summary.issues;document.getElementById('high').textContent=d.summary.high;document.getElementById('summary').textContent=d.summary.medium+' متوسطة · '+d.summary.low+' منخفضة';document.getElementById('opps').innerHTML=d.opportunities.map(x=>'<div class="row"><span class="tag">'+x.priority+'</span> <b>'+x.title+'</b><div class="muted">'+x.detail+'</div></div>').join('');document.getElementById('plan').innerHTML=(d.action_plan||[]).map(x=>'<div class="row"><span class="tag">STEP '+x.step+'</span> <b>'+x.area+'</b><div class="muted">'+x.action+'</div></div>').join('')||'<div class="muted">ابدأ بإعادة الفحص ثم اتبع فرص التحسين المقترحة.</div>';document.getElementById('issues').innerHTML=d.issues.map(x=>'<div class="row"><b>'+x.severity.toUpperCase()+'</b> — '+x.message+'<div class="muted">'+x.url+'</div><div class="fix"><b>طريقة الإصلاح:</b> '+(x.fix||'راجع المشكلة')+'<ol class="steps">'+(x.steps||[]).map(s=>'<li>'+s+'</li>').join('')+'</ol>'+(x.example?'<code>'+x.example+'</code>':'')+'</div></div>').join('')||'<div class="muted">لا توجد مشاكل في العينة المفحوصة.</div>';document.getElementById('pageList').innerHTML=d.pages.map(x=>'<div class="row" dir="ltr">'+x.status+' — '+x.url+' · '+(x.words||0)+' words · '+(x.links||0)+' links</div>').join('')}
 </script>
-<script>loadMe();</script>
+<script>
+document.addEventListener('DOMContentLoaded',()=>{
+  const byId=id=>document.getElementById(id);
+  byId('registerBtn')?.addEventListener('click',register);
+  byId('loginBtn')?.addEventListener('click',login);
+  document.querySelectorAll('.planBtn').forEach(b=>b.addEventListener('click',()=>buy(b.dataset.plan)));
+  loadMe();
+});
+window.addEventListener('error',e=>{
+  const box=document.getElementById('authMsg')||document.getElementById('err');
+  if(box) box.textContent='خطأ في واجهة الموقع: '+(e.message||'حدث خطأ غير متوقع');
+});
+</script>
