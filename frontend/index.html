@@ -47,7 +47,6 @@ function applyLanguage(){
 document.addEventListener('DOMContentLoaded',()=>{
   applyLanguage();
   const byId=id=>document.getElementById(id);
-  const byId=id=>document.getElementById(id);
   byId('registerBtn')?.addEventListener('click',register);
   byId('loginBtn')?.addEventListener('click',login);
   document.querySelectorAll('.planBtn').forEach(b=>b.addEventListener('click',()=>buy(b.dataset.plan)));
