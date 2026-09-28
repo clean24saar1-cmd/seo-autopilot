@@ -318,7 +318,7 @@ class Handler(BaseHTTPRequestHandler):
         if not path.startswith(os.path.abspath(FRONTEND_DIR)+os.sep) or not os.path.isfile(path):
             return self.send_json({"error":"not found"},404)
         with open(path,"rb") as f: data=f.read()
-        self.send_response(200); self.send_header("Content-Type", mimetypes.guess_type(path)[0] or "application/octet-stream"); self.send_header("Content-Length",str(len(data))); self.end_headers(); self.wfile.write(data)
+        self.send_response(200); self.send_header("Content-Type", mimetypes.guess_type(path)[0] or "application/octet-stream"); self.send_header("Content-Length",str(len(data))); self.send_header("Cache-Control","no-store, no-cache, must-revalidate, max-age=0"); self.send_header("Pragma","no-cache"); self.send_header("Expires","0"); self.end_headers(); self.wfile.write(data)
 
 if __name__=="__main__":
     os.makedirs(os.path.dirname(DB),exist_ok=True)
