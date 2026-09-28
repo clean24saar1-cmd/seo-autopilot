@@ -1,0 +1,28 @@
+name: Runtime smoke test
+on:
+  push:
+    branches: [main]
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Start server
+        run: |
+          python backend/server.py > /tmp/seo-autopilot.log 2>&1 &
+          echo $! > /tmp/seo-autopilot.pid
+          for i in {1..20}; do
+            if curl -fsS http://127.0.0.1:8080/api/health; then
+              exit 0
+            fi
+            sleep 1
+          done
+          cat /tmp/seo-autopilot.log
+          exit 1
+      - name: Stop server
+        if: always()
+        run: |
+          if [ -f /tmp/seo-autopilot.pid ]; then kill $(cat /tmp/seo-autopilot.pid) || true; fi
