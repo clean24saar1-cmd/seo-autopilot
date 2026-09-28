@@ -1,0 +1,1 @@
+# SEO Autopilot uses only Python standard library
