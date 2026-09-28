@@ -305,6 +305,7 @@ class Handler(BaseHTTPRequestHandler):
     def do_GET(self):
         path=urllib.parse.urlparse(self.path).path
         if path=="/api/health": return self.send_json({"ok":True,"service":"SEO Autopilot"})
+        if path=="/api/version": return self.send_json({"ok":True,"version":"2026-09-28-601f7ff","commit":"601f7ffdb284ed7f6a31ace8e0ef64009220af2d"})
         if path=="/api/me":
             u=current_user(self); return self.send_json({"user":u,"usage":usage(u["id"]) if u else 0,"plans":PLANS,"is_admin":bool(u and u["role"] in ("owner","admin")),"is_owner":bool(u and u["role"]=="owner")})
         if path.startswith("/api/audits"):
