@@ -1,4 +1,4 @@
-import json, os, re, sqlite3, time, urllib.parse, urllib.request, urllib.robotparser, mimetypes
+import base64, hashlib, hmac, json, os, re, secrets, sqlite3, time, urllib.parse, urllib.request, urllib.error, urllib.robotparser, mimetypes
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from html.parser import HTMLParser
 from collections import deque, Counter
@@ -10,8 +10,44 @@ PORT=int(os.environ.get("PORT","8080"))
 
 def db():
     c=sqlite3.connect(DB); c.execute("""create table if not exists audits(
-      id integer primary key, url text, created_at real, score integer, pages integer,
-      issues integer, data text)"""); c.commit(); return c
+      id integer primary key, user_id integer, url text, created_at real, score integer, pages integer,
+      issues integer, data text)""")
+    c.execute("""create table if not exists users(
+      id integer primary key, email text unique not null, password_hash text not null,
+      salt text not null, plan text not null default 'free', stripe_customer_id text,
+      stripe_subscription_id text, subscription_status text, created_at real)""")
+    cols=[r[1] for r in c.execute("pragma table_info(audits)").fetchall()]
+    if "user_id" not in cols:
+        c.execute("alter table audits add column user_id integer")
+    c.commit(); return c
+
+
+PLANS={"free":{"name":"مجاني","audits":2,"pages":5},"starter":{"name":"Starter","audits":30,"pages":25},"pro":{"name":"Pro","audits":150,"pages":100},"agency":{"name":"Agency","audits":500,"pages":250}}
+def hash_password(password,salt=None):
+    salt=salt or secrets.token_hex(16)
+    return salt,hashlib.pbkdf2_hmac("sha256",password.encode(),bytes.fromhex(salt),210000).hex()
+def verify_password(password,salt,digest):
+    return hmac.compare_digest(hash_password(password,salt)[1],digest)
+def current_user(handler):
+    m=re.search(r"(?:^|;\s*)session=([^;]+)",handler.headers.get("Cookie",""))
+    if not m:return None
+    try:
+        raw=base64.urlsafe_b64decode(m.group(1)+"==").decode(); uid,mac=raw.split(".",1)
+        secret=os.environ.get("SESSION_SECRET","change-this-secret")
+        if not hmac.compare_digest(mac,hmac.new(secret.encode(),uid.encode(),hashlib.sha256).hexdigest()):return None
+        c=db();r=c.execute("select id,email,plan,stripe_customer_id,stripe_subscription_id,subscription_status from users where id=?",(int(uid),)).fetchone();c.close()
+        return {"id":r[0],"email":r[1],"plan":r[2],"stripe_customer_id":r[3],"stripe_subscription_id":r[4],"subscription_status":r[5]} if r else None
+    except Exception:return None
+def set_cookie(handler,uid):
+    secret=os.environ.get("SESSION_SECRET","change-this-secret");mac=hmac.new(secret.encode(),str(uid).encode(),hashlib.sha256).hexdigest()
+    token=base64.urlsafe_b64encode(f"{uid}.{mac}".encode()).decode().rstrip("=")
+    handler.send_header("Set-Cookie",f"session={token}; Path=/; HttpOnly; SameSite=Lax; Secure")
+def usage(uid):
+    c=db();n=c.execute("select count(*) from audits where user_id=? and created_at>=?",(uid,time.time()-30*86400)).fetchone()[0];c.close();return n
+def require_user(handler):
+    u=current_user(handler)
+    if not u: handler.send_json({"error":"login_required","message":"سجل الدخول أولاً."},401); return None
+    return u
 
 class Parser(HTMLParser):
     def __init__(self, base):
@@ -89,7 +125,7 @@ FIX_GUIDES = {
     }
 }
 
-def audit(start,max_pages=25):
+def audit(start,user_id,max_pages=25):
     p=urllib.parse.urlparse(start); root=f"{p.scheme}://{p.netloc}"
     q=deque([start]); seen=set(); pages=[]; issues=[]
     while q and len(pages)<max_pages:
@@ -129,8 +165,8 @@ def audit(start,max_pages=25):
     if not opp: opp.append({"priority":"MEDIUM","title":"Connect Search Console","detail":"Search data enables opportunity discovery based on impressions and positions."})
     for item in issues:\n        item.update(FIX_GUIDES.get(item["type"], {"fix":"راجع السبب وأصلح المشكلة من مصدرها.","steps":["افحص الصفحة المتأثرة.","طبّق التعديل المناسب.","أعد تشغيل الفحص للتأكد من اختفاء المشكلة."],"example":""}))\n    action_plan=[]\n    for priority, label, types in [("1","تقني","crawl_error"),("2","On-Page","missing_title"),("3","On-Page","missing_description"),("4","محتوى","thin_content"),("5","ربط داخلي","internal_links")]:\n        if any(x.get("type")==types for x in issues): action_plan.append({"step":priority,"area":label,"action":next((x["fix"] for x in issues if x.get("type")==types),"")})\n    result={"url":start,"score":score,"pages":pages,"issues":issues,"opportunities":opp,"action_plan":action_plan,
             "summary":{"pages":len(pages),"issues":len(issues),"high":high,"medium":med,"low":low}}
-    c=db(); c.execute("insert into audits(url,created_at,score,pages,issues,data) values(?,?,?,?,?,?)",
-                      (start,time.time(),score,len(pages),len(issues),json.dumps(result))); c.commit(); c.close()
+    c=db(); c.execute("insert into audits(user_id,url,created_at,score,pages,issues,data) values(?,?,?,?,?,?,?)",
+                      (user_id,start,time.time(),score,len(pages),len(issues),json.dumps(result)); c.commit(); c.close()
     return result
 
 class Handler(BaseHTTPRequestHandler):
@@ -140,17 +176,48 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header("Access-Control-Allow-Origin","*"); self.send_header("Access-Control-Allow-Headers","Content-Type"); self.end_headers(); self.wfile.write(b)
     def do_OPTIONS(self): self.send_response(204); self.send_header("Access-Control-Allow-Origin","*"); self.send_header("Access-Control-Allow-Headers","Content-Type"); self.end_headers()
     def do_POST(self):
-        if self.path!="/api/audit": return self.send_json({"error":"not found"},404)
-        n=int(self.headers.get("Content-Length","0")); data=json.loads(self.rfile.read(n) or b"{}")
-        url=data.get("url","").strip()
-        if not re.match(r"^https?://",url): url="https://"+url
-        try:self.send_json(audit(url))
-        except Exception as e:self.send_json({"error":str(e)},500)
+        path=urllib.parse.urlparse(self.path).path
+        n=int(self.headers.get("Content-Length","0"))
+        data=json.loads(self.rfile.read(n) or b"{}")
+        if path=="/api/register":
+            email=data.get("email","").strip().lower(); password=data.get("password","")
+            if not re.match(r"^[^@\s]+@[^@\s]+\.[^@\s]+$",email) or len(password)<8:
+                return self.send_json({"error":"invalid","message":"أدخل بريدًا صحيحًا وكلمة مرور من 8 أحرف على الأقل."},400)
+            salt,digest=hash_password(password); c=db()
+            try:
+                c.execute("insert into users(email,password_hash,salt,plan,created_at) values(?,?,?,?,?)",(email,digest,salt,"free",time.time())); c.commit()
+                uid=c.execute("select id from users where email=?",(email,)).fetchone()[0]
+            except sqlite3.IntegrityError:
+                c.close(); return self.send_json({"error":"exists","message":"هذا البريد مسجل بالفعل."},409)
+            c.close(); set_cookie(self,uid); return self.send_json({"ok":True,"user":{"id":uid,"email":email,"plan":"free"}})
+        if path=="/api/login":
+            email=data.get("email","").strip().lower(); password=data.get("password",""); c=db()
+            r=c.execute("select id,email,password_hash,salt,plan,stripe_customer_id,stripe_subscription_id,subscription_status from users where email=?",(email,)).fetchone(); c.close()
+            if not r or not verify_password(password,r[3],r[2]): return self.send_json({"error":"invalid","message":"البريد أو كلمة المرور غير صحيحة."},401)
+            set_cookie(self,r[0]); return self.send_json({"ok":True,"user":{"id":r[0],"email":r[1],"plan":r[4],"stripe_customer_id":r[5],"stripe_subscription_id":r[6],"subscription_status":r[7]}})
+        if path=="/api/logout":
+            self.send_response(200); self.send_header("Set-Cookie","session=; Path=/; Max-Age=0; HttpOnly; SameSite=Lax; Secure"); self.send_header("Content-Type","application/json"); self.end_headers(); self.wfile.write(b'{"ok":true}'); return
+        if path=="/api/audit":
+            u=require_user(self)
+            if not u:return
+            plan=PLANS.get(u["plan"],PLANS["free"]); used=usage(u["id"])
+            if used>=plan["audits"]:
+                return self.send_json({"error":"limit","message":f"انتهى حد خطة {plan['name']} لهذا الشهر ({plan['audits']} تحليلات). اختر اشتراكًا للمتابعة.","used":used,"limit":plan["audits"]},402)
+            url=data.get("url","").strip()
+            if not re.match(r"^https?://",url): url="https://"+url
+            try:self.send_json(audit(url,u["id"],plan["pages"]))
+            except Exception as e:self.send_json({"error":str(e)},500)
+            return
+        return self.send_json({"error":"not found"},404)
     def do_GET(self):
         path=urllib.parse.urlparse(self.path).path
         if path=="/api/health": return self.send_json({"ok":True,"service":"SEO Autopilot"})
+        if path=="/api/me":
+            u=current_user(self); return self.send_json({"user":u,"usage":usage(u["id"]) if u else 0,"plans":PLANS})
         if path.startswith("/api/audits"):
-            c=db(); rows=c.execute("select id,url,created_at,score,pages,issues from audits order by id desc limit 20").fetchall(); c.close()
+            u=require_user(self)
+            if not u:return
+            c=db(); rows=c.execute("select id,url,created_at,score,pages,issues from audits where user_id=? order by id desc limit 20",(u["id"],)).fetchall(); c.close()
             return self.send_json([dict(id=r[0],url=r[1],created_at=r[2],score=r[3],pages=r[4],issues=r[5]) for r in rows])
         if path == "/":
             return self.serve_file("index.html")
