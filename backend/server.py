@@ -5,6 +5,7 @@ from collections import deque, Counter
 
 BASE_DIR=os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 DB=os.path.join(BASE_DIR,"data","seo.db")
+os.makedirs(os.path.dirname(DB),exist_ok=True)
 FRONTEND_DIR=os.path.join(BASE_DIR,"frontend")
 PORT=int(os.environ.get("PORT","8080"))
 OWNER_EMAIL_FALLBACK="clean24saar1@gmail.com"
