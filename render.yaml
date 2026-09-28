@@ -3,6 +3,7 @@ services:
     name: seo-autopilot
     runtime: python
     plan: free
+    autoDeployTrigger: commit
     buildCommand: "pip install -r requirements.txt"
     startCommand: "python backend/server.py"
     envVars:
