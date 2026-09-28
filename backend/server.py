@@ -294,24 +294,30 @@ class Handler(BaseHTTPRequestHandler):
                 return self.send_json({"received":True})
             except Exception as e:return self.send_json({"error":"invalid_webhook","message":str(e)},400)
         if path=="/api/audit":
-            u=require_user(self)
-            if not u:return
+            # Public first-run mode: no registration is required to test the core SEO analyzer.
+            u=current_user(self)
+            url=str(data.get("url","") or "").strip()
+            if not url:
+                return self.send_json({"error":"invalid","message":"أدخل رابط الموقع أولاً."},400)
+            if not re.match(r"^https?://",url): url="https://"+url
+            if not u:
+                try:self.send_json(audit(url,None,5))
+                except Exception as e:self.send_json({"error":"audit_failed","message":str(e)[:220]},500)
+                return
             plan=PLANS.get(u["plan"],PLANS["free"]); used=usage(u["id"])
             if u["role"]=="owner" or u["free_override"]:
                 used=0
             if used>=plan["audits"]:
                 return self.send_json({"error":"limit","message":f"انتهى حد خطة {plan['name']} لهذا الشهر ({plan['audits']} تحليلات). اختر اشتراكًا للمتابعة.","used":used,"limit":plan["audits"]},402)
-            url=data.get("url","").strip()
-            if not re.match(r"^https?://",url): url="https://"+url
             max_pages=1000 if u["role"]=="owner" else (500 if u["free_override"] else plan["pages"])
             try:self.send_json(audit(url,u["id"],max_pages))
-            except Exception as e:self.send_json({"error":str(e)},500)
+            except Exception as e:self.send_json({"error":"audit_failed","message":str(e)[:220]},500)
             return
         return self.send_json({"error":"not found"},404)
     def do_GET(self):
         path=urllib.parse.urlparse(self.path).path
         if path=="/api/health": return self.send_json({"ok":True,"service":"SEO Autopilot"})
-        if path=="/api/version": return self.send_json({"ok":True,"version":"2026-09-28-authfix3","commit":"latest"})
+        if path=="/api/version": return self.send_json({"ok":True,"version":"2026-09-28-one-shot","commit":"latest"})
         if path=="/api/me":
             u=current_user(self); return self.send_json({"user":u,"usage":usage(u["id"]) if u else 0,"plans":PLANS,"is_admin":bool(u and u["role"] in ("owner","admin")),"is_owner":bool(u and u["role"]=="owner")})
         if path.startswith("/api/audits"):
