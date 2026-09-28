@@ -15,10 +15,18 @@ def db():
     c.execute("""create table if not exists users(
       id integer primary key, email text unique not null, password_hash text not null,
       salt text not null, plan text not null default 'free', stripe_customer_id text,
-      stripe_subscription_id text, subscription_status text, created_at real)""")
+      stripe_subscription_id text, subscription_status text, role text not null default 'user',
+      free_override integer not null default 0, created_at real)""")
     cols=[r[1] for r in c.execute("pragma table_info(audits)").fetchall()]
     if "user_id" not in cols:
         c.execute("alter table audits add column user_id integer")
+    if "role" not in cols:
+        c.execute("alter table users add column role text not null default 'user'")
+    if "free_override" not in cols:
+        c.execute("alter table users add column free_override integer not null default 0")
+    owner_email=os.environ.get("OWNER_EMAIL","").strip().lower()
+    if owner_email:
+        c.execute("update users set role='owner',free_override=1,plan='agency' where lower(email)=?",(owner_email,))
     c.commit(); return c
 
 
@@ -35,8 +43,8 @@ def current_user(handler):
         raw=base64.urlsafe_b64decode(m.group(1)+"==").decode(); uid,mac=raw.split(".",1)
         secret=os.environ.get("SESSION_SECRET","change-this-secret")
         if not hmac.compare_digest(mac,hmac.new(secret.encode(),uid.encode(),hashlib.sha256).hexdigest()):return None
-        c=db();r=c.execute("select id,email,plan,stripe_customer_id,stripe_subscription_id,subscription_status from users where id=?",(int(uid),)).fetchone();c.close()
-        return {"id":r[0],"email":r[1],"plan":r[2],"stripe_customer_id":r[3],"stripe_subscription_id":r[4],"subscription_status":r[5]} if r else None
+        c=db();r=c.execute("select id,email,plan,stripe_customer_id,stripe_subscription_id,subscription_status,role,free_override from users where id=?",(int(uid),)).fetchone();c.close()
+        return {"id":r[0],"email":r[1],"plan":r[2],"stripe_customer_id":r[3],"stripe_subscription_id":r[4],"subscription_status":r[5],"role":r[6],"free_override":bool(r[7])} if r else None
     except Exception:return None
 def set_cookie(handler,uid):
     secret=os.environ.get("SESSION_SECRET","change-this-secret");mac=hmac.new(secret.encode(),str(uid).encode(),hashlib.sha256).hexdigest()
@@ -47,6 +55,18 @@ def usage(uid):
 def require_user(handler):
     u=current_user(handler)
     if not u: handler.send_json({"error":"login_required","message":"سجل الدخول أولاً."},401); return None
+    return u
+def require_admin(handler):
+    u=require_user(handler)
+    if not u:return None
+    if u["role"] not in ("owner","admin"):
+        handler.send_json({"error":"forbidden","message":"هذه الصفحة متاحة للمالك أو المدير فقط."},403); return None
+    return u
+def require_owner(handler):
+    u=require_user(handler)
+    if not u:return None
+    if u["role"]!="owner":
+        handler.send_json({"error":"forbidden","message":"هذه العملية متاحة للمالك فقط."},403); return None
     return u
 
 class Parser(HTMLParser):
@@ -195,14 +215,36 @@ class Handler(BaseHTTPRequestHandler):
                 uid=c.execute("select id from users where email=?",(email,)).fetchone()[0]
             except sqlite3.IntegrityError:
                 c.close(); return self.send_json({"error":"exists","message":"هذا البريد مسجل بالفعل."},409)
-            c.close(); return self.send_json({"ok":True,"user":{"id":uid,"email":email,"plan":"free"}},cookie_uid=uid)
+            c.close(); return self.send_json({"ok":True,"user":{"id":uid,"email":email,"plan":"free","role":"user","free_override":False}},cookie_uid=uid)
         if path=="/api/login":
             email=data.get("email","").strip().lower(); password=data.get("password",""); c=db()
-            r=c.execute("select id,email,password_hash,salt,plan,stripe_customer_id,stripe_subscription_id,subscription_status from users where email=?",(email,)).fetchone(); c.close()
+            r=c.execute("select id,email,password_hash,salt,plan,stripe_customer_id,stripe_subscription_id,subscription_status,role,free_override from users where email=?",(email,)).fetchone(); c.close()
             if not r or not verify_password(password,r[3],r[2]): return self.send_json({"error":"invalid","message":"البريد أو كلمة المرور غير صحيحة."},401)
-            return self.send_json({"ok":True,"user":{"id":r[0],"email":r[1],"plan":r[4],"stripe_customer_id":r[5],"stripe_subscription_id":r[6],"subscription_status":r[7]}},cookie_uid=r[0])
+            return self.send_json({"ok":True,"user":{"id":r[0],"email":r[1],"plan":r[4],"stripe_customer_id":r[5],"stripe_subscription_id":r[6],"subscription_status":r[7],"role":r[8],"free_override":bool(r[9])}},cookie_uid=r[0])
         if path=="/api/logout":
             self.send_response(200); self.send_header("Set-Cookie","session=; Path=/; Max-Age=0; HttpOnly; SameSite=Lax; Secure"); self.send_header("Content-Type","application/json"); self.end_headers(); self.wfile.write(b'{"ok":true}'); return
+        if path=="/api/admin/users":
+            a=require_admin(self)
+            if not a:return
+            c=db(); rows=c.execute("select id,email,plan,role,free_override,subscription_status,created_at from users order by id desc").fetchall(); c.close()
+            return self.send_json([{"id":r[0],"email":r[1],"plan":r[2],"role":r[3],"free_override":bool(r[4]),"subscription_status":r[5],"created_at":r[6]} for r in rows])
+        if path=="/api/admin/grant-free":
+            a=require_admin(self)
+            if not a:return
+            uid=int(data.get("user_id",0)); free=bool(data.get("free",True)); c=db()
+            row=c.execute("select id from users where id=?",(uid,)).fetchone()
+            if not row:c.close();return self.send_json({"error":"not_found","message":"المستخدم غير موجود."},404)
+            c.execute("update users set free_override=?,plan=? where id=?",(1 if free else 0,"agency" if free else "free",uid));c.commit();c.close()
+            return self.send_json({"ok":True,"user_id":uid,"free_override":free})
+        if path=="/api/admin/set-role":
+            a=require_owner(self)
+            if not a:return
+            uid=int(data.get("user_id",0)); role=data.get("role","user")
+            if role not in ("user","admin"):return self.send_json({"error":"invalid_role"},400)
+            c=db(); row=c.execute("select id from users where id=?",(uid,)).fetchone()
+            if not row:c.close();return self.send_json({"error":"not_found"},404)
+            c.execute("update users set role=? where id=?",(role,uid));c.commit();c.close()
+            return self.send_json({"ok":True,"user_id":uid,"role":role})
         if path=="/api/checkout":
             u=require_user(self)
             if not u:return
@@ -241,11 +283,14 @@ class Handler(BaseHTTPRequestHandler):
             u=require_user(self)
             if not u:return
             plan=PLANS.get(u["plan"],PLANS["free"]); used=usage(u["id"])
+            if u["role"]=="owner" or u["free_override"]:
+                used=0
             if used>=plan["audits"]:
                 return self.send_json({"error":"limit","message":f"انتهى حد خطة {plan['name']} لهذا الشهر ({plan['audits']} تحليلات). اختر اشتراكًا للمتابعة.","used":used,"limit":plan["audits"]},402)
             url=data.get("url","").strip()
             if not re.match(r"^https?://",url): url="https://"+url
-            try:self.send_json(audit(url,u["id"],plan["pages"]))
+            max_pages=250 if u["role"]=="owner" else (250 if u["free_override"] else plan["pages"])
+            try:self.send_json(audit(url,u["id"],max_pages))
             except Exception as e:self.send_json({"error":str(e)},500)
             return
         return self.send_json({"error":"not found"},404)
@@ -253,7 +298,7 @@ class Handler(BaseHTTPRequestHandler):
         path=urllib.parse.urlparse(self.path).path
         if path=="/api/health": return self.send_json({"ok":True,"service":"SEO Autopilot"})
         if path=="/api/me":
-            u=current_user(self); return self.send_json({"user":u,"usage":usage(u["id"]) if u else 0,"plans":PLANS})
+            u=current_user(self); return self.send_json({"user":u,"usage":usage(u["id"]) if u else 0,"plans":PLANS,"is_admin":bool(u and u["role"] in ("owner","admin")),"is_owner":bool(u and u["role"]=="owner")})
         if path.startswith("/api/audits"):
             u=require_user(self)
             if not u:return
