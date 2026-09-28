@@ -104,14 +104,18 @@ class Handler(BaseHTTPRequestHandler):
         try:self.send_json(audit(url))
         except Exception as e:self.send_json({"error":str(e)},500)
     def do_GET(self):
-        if self.path=="/api/health": return self.send_json({"ok":True,"service":"SEO Autopilot"})
-        if self.path.startswith("/api/audits"):
+        path=urllib.parse.urlparse(self.path).path
+        if path=="/api/health": return self.send_json({"ok":True,"service":"SEO Autopilot"})
+        if path.startswith("/api/audits"):
             c=db(); rows=c.execute("select id,url,created_at,score,pages,issues from audits order by id desc limit 20").fetchall(); c.close()
             return self.send_json([dict(id=r[0],url=r[1],created_at=r[2],score=r[3],pages=r[4],issues=r[5]) for r in rows])
-        if self.path == "/":
+        if path == "/":
             return self.serve_file("index.html")
-        if self.path.startswith("/assets/"):
-            return self.serve_file(self.path.lstrip("/"))
+        if path.startswith("/assets/"):
+            return self.serve_file(path.lstrip("/"))
+        # Keep the public site usable for harmless URL variations such as /?x=1 or trailing paths.
+        if not path.startswith("/api/"):
+            return self.serve_file("index.html")
         self.send_json({"error":"not found"},404)
     def serve_file(self, relpath):
         path=os.path.abspath(os.path.join(FRONTEND_DIR, relpath))
