@@ -38,7 +38,7 @@ The app listens on Render's PORT environment variable.
 ## المالك والإدارة
 
 يمكن تحديد مالك الموقع عبر متغير Render:
-- `OWNER_EMAIL`: البريد الذي سيصبح Owner/Super Admin عند تسجيل الدخول.
+- `OWNER_EMAIL`: البريد الذي سيصبح Owner/Super Admin عند تسجيل الدخول.\n- البريد الأساسي للمالك `clean24saar1@gmail.com` مضمّن تلقائيًا في النظام، لذلك لا يتطلب إعدادًا إضافيًا.
 
 المالك:
 - لا يخضع لحدود التحليل.
