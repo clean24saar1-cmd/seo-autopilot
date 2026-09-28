@@ -19,12 +19,13 @@ def db():
       salt text not null, plan text not null default 'free', stripe_customer_id text,
       stripe_subscription_id text, subscription_status text, role text not null default 'user',
       free_override integer not null default 0, created_at real)""")
-    cols=[r[1] for r in c.execute("pragma table_info(audits)").fetchall()]
-    if "user_id" not in cols:
+    audit_cols=[r[1] for r in c.execute("pragma table_info(audits)").fetchall()]
+    user_cols=[r[1] for r in c.execute("pragma table_info(users)").fetchall()]
+    if "user_id" not in audit_cols:
         c.execute("alter table audits add column user_id integer")
-    if "role" not in cols:
+    if "role" not in user_cols:
         c.execute("alter table users add column role text not null default 'user'")
-    if "free_override" not in cols:
+    if "free_override" not in user_cols:
         c.execute("alter table users add column free_override integer not null default 0")
     owner_email=os.environ.get("OWNER_EMAIL","").strip().lower() or OWNER_EMAIL_FALLBACK
     if owner_email:
