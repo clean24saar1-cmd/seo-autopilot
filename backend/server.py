@@ -46,6 +46,49 @@ def fetch(url, timeout=12):
     with urllib.request.urlopen(req,timeout=timeout) as r:
         return r.getcode(), r.geturl(), r.read(900000), r.headers.get("Content-Type","")
 
+FIX_GUIDES = {
+    "missing_title": {
+        "fix": "أضف عنوان Title فريدًا يصف محتوى الصفحة.",
+        "steps": ["افتح الصفحة أو قالبها.", "ضع عنوانًا واضحًا مرتبطًا بموضوع الصفحة والكلمة المستهدفة.", "استهدف عادةً عنوانًا مختصرًا وواضحًا، وتجنب تكرار العناوين بين الصفحات."],
+        "example": "<title>خدمة تصميم مواقع احترافية | اسم الشركة</title>"
+    },
+    "title_length": {
+        "fix": "أعد كتابة عنوان الصفحة ليكون أوضح وأكثر تركيزًا على نية البحث.",
+        "steps": ["ضع الكلمة أو العبارة الرئيسية في مكان طبيعي.", "احذف الكلمات الزائدة والتكرار.", "راجع العنوان في نتائج البحث بعد النشر."],
+        "example": "<title>أفضل خدمات SEO للمواقع | اسم الشركة</title>"
+    },
+    "missing_description": {
+        "fix": "أضف Meta Description تلخص الصفحة وتشجع الباحث على فتحها.",
+        "steps": ["اكتب وصفًا فريدًا للصفحة.", "اذكر موضوع الصفحة أو فائدتها بوضوح.", "تجنب نسخ نفس الوصف لكل الصفحات."],
+        "example": "<meta name=\"description\" content=\"تعرف على خدمات SEO وتحسين المواقع لزيادة الظهور في محركات البحث.\">"
+    },
+    "missing_h1": {
+        "fix": "أضف عنوان H1 واحدًا يعبّر عن الموضوع الرئيسي للصفحة.",
+        "steps": ["حدد الموضوع الأساسي.", "أضف H1 واضحًا في المحتوى.", "تأكد أن العنوان يخدم نية البحث بدل حشو الكلمات."],
+        "example": "<h1>خدمات تحسين محركات البحث SEO</h1>"
+    },
+    "multiple_h1": {
+        "fix": "راجع عناوين H1 واجعل هناك عنوانًا رئيسيًا واضحًا واحدًا للصفحة.",
+        "steps": ["احتفظ بـ H1 الذي يمثل الموضوع الرئيسي.", "حوّل العناوين الثانوية إلى H2 أو H3 عند الحاجة.", "تأكد من أن هيكل العناوين منطقي."],
+        "example": "<h1>الموضوع الرئيسي</h1>\n<h2>القسم الأول</h2>"
+    },
+    "image_alt": {
+        "fix": "أضف ALT وصفيًا للصور المهمة، واترك الصور الزخرفية بدون نص بديل عند الحاجة.",
+        "steps": ["راجع كل صورة بلا ALT.", "اكتب وصفًا قصيرًا يشرح محتوى الصورة عندما تكون الصورة مفيدة.", "لا تحشو ALT بالكلمات المفتاحية."],
+        "example": "<img src=\"image.webp\" alt=\"فريق تحسين محركات البحث يعمل على تحليل الموقع\">"
+    },
+    "thin_content": {
+        "fix": "وسّع الصفحة فقط إذا كانت نية البحث تحتاج معلومات أكثر؛ لا تضف نصًا حشوًا.",
+        "steps": ["حدد سؤال الزائر أو نية البحث.", "أضف معلومات أصلية وأمثلة وأسئلة شائعة عند الحاجة.", "حسّن قابلية القراءة والتنظيم والروابط الداخلية."],
+        "example": "أضف أقسامًا مفيدة تجيب عن الأسئلة الفعلية للزائر بدل تكرار الكلمات المفتاحية."
+    },
+    "crawl_error": {
+        "fix": "افحص سبب فشل الوصول إلى الصفحة أو المورد.",
+        "steps": ["تأكد من أن الرابط صحيح ويستخدم HTTPS.", "افحص حالة الخادم وإعادة التوجيه وملف robots.txt.", "إذا كان المورد محميًا أو محذوفًا، أصلح الرابط أو استبدله."],
+        "example": "HTTP 200 للصفحات العامة، مع إعادة توجيه 301 عند تغيير الرابط."
+    }
+}
+
 def audit(start,max_pages=25):
     p=urllib.parse.urlparse(start); root=f"{p.scheme}://{p.netloc}"
     q=deque([start]); seen=set(); pages=[]; issues=[]
@@ -84,7 +127,7 @@ def audit(start,max_pages=25):
     if any(x.get("links",0)<3 for x in pages): opp.append({"priority":"MEDIUM","title":"Strengthen internal linking","detail":"Some crawled pages have few internal links."})
     if any(x.get("words",0)<300 for x in pages): opp.append({"priority":"MEDIUM","title":"Expand thin pages where useful","detail":"Review low-content pages against search intent."})
     if not opp: opp.append({"priority":"MEDIUM","title":"Connect Search Console","detail":"Search data enables opportunity discovery based on impressions and positions."})
-    result={"url":start,"score":score,"pages":pages,"issues":issues,"opportunities":opp,
+    for item in issues:\n        item.update(FIX_GUIDES.get(item["type"], {"fix":"راجع السبب وأصلح المشكلة من مصدرها.","steps":["افحص الصفحة المتأثرة.","طبّق التعديل المناسب.","أعد تشغيل الفحص للتأكد من اختفاء المشكلة."],"example":""}))\n    action_plan=[]\n    for priority, label, types in [("1","تقني","crawl_error"),("2","On-Page","missing_title"),("3","On-Page","missing_description"),("4","محتوى","thin_content"),("5","ربط داخلي","internal_links")]:\n        if any(x.get("type")==types for x in issues): action_plan.append({"step":priority,"area":label,"action":next((x["fix"] for x in issues if x.get("type")==types),"")})\n    result={"url":start,"score":score,"pages":pages,"issues":issues,"opportunities":opp,"action_plan":action_plan,
             "summary":{"pages":len(pages),"issues":len(issues),"high":high,"medium":med,"low":low}}
     c=db(); c.execute("insert into audits(url,created_at,score,pages,issues,data) values(?,?,?,?,?,?)",
                       (start,time.time(),score,len(pages),len(issues),json.dumps(result))); c.commit(); c.close()
