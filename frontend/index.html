@@ -18,7 +18,7 @@ let ME=null;
 async function loadMe(){try{const r=await fetch('/api/me',{credentials:'same-origin'});const d=await r.json();ME=d.user;document.getElementById('auth').style.display=ME?'none':'block';document.getElementById('home').style.display=ME?'block':'none';document.getElementById('admin').style.display=(d.is_admin?'block':'none');document.getElementById('account').innerHTML=ME?ME.email+' · '+ME.role+' <button class="smallbtn" onclick="buy(&quot;pro&quot;)">الترقية</button> '+(d.is_admin?'<button class="smallbtn" onclick="loadUsers()">الإدارة</button>':'')+' <button class="smallbtn" onclick="logout()">خروج</button>':'غير مسجل';if(ME)document.getElementById('err').textContent=ME.free_override||ME.role==='owner'?'وصول مجاني بلا حدود':('رصيدك الشهري: '+d.usage+' / '+d.plans[ME.plan].audits+' تحليل');if(d.is_admin)loadUsers();}catch(e){}}
 async function authCall(path,email,password){const r=await fetch(path,{method:'POST',headers:{'Content-Type':'application/json'},credentials:'same-origin',body:JSON.stringify({email,password})});const d=await r.json();if(!r.ok)throw Error(d.message||d.error);ME=d.user;document.getElementById('auth').style.display='none';document.getElementById('home').style.display='block';document.getElementById('account').innerHTML=ME.email+' · '+ME.plan+' <button class="smallbtn" onclick="logout()">خروج</button>';return d}
 async function register(){try{await authCall('/api/register',document.getElementById('email').value,document.getElementById('password').value);document.getElementById('authMsg').textContent='تم إنشاء الحساب.'}catch(e){document.getElementById('authMsg').textContent=e.message}}
-async function login(){try{await authCall('/api/login',document.getElementById('loginEmail').value,document.getElementById('loginPassword').value);document.getElementById('authMsg').textContent='تم تسجيل الدخول.'}catch(e){document.getElementById('authMsg').textContent=e.message}}
+async function login(){try{await authCall('/api/login',document.getElementById('loginEmail').value,document.getElementById('loginPassword').value);document.getElementById('authMsg').textContent='تم تسجيل الدخول.'}catch(e){document.getElementById('authMsg').textContent=e.message}}\nwindow.register=register;window.login=login;
 async function logout(){await fetch('/api/logout',{method:'POST',credentials:'same-origin'});location.reload()}
 async function loadUsers(){const r=await fetch('/api/admin/users',{credentials:'same-origin'});const d=await r.json();if(!r.ok)return;document.getElementById('users').innerHTML=d.map(u=>'<div class="row"><b>'+u.email+'</b> · '+u.role+' · '+u.plan+' · '+(u.free_override?'مجاني بلا حدود':'مدفوع/محدود')+' <button class="smallbtn" onclick="grantFree('+u.id+','+(!u.free_override)+')">'+(u.free_override?'إلغاء المجاني':'منح مجاني بلا حدود')+'</button>'+(ME&&ME.role==='owner'&&u.role==='user'?'<button class="smallbtn" onclick="makeAdmin('+u.id+')">جعله مديرًا</button>':'')+'</div>').join('')}
 async function grantFree(id,free){const r=await fetch('/api/admin/grant-free',{method:'POST',headers:{'Content-Type':'application/json'},credentials:'same-origin',body:JSON.stringify({user_id:id,free})});if(r.ok)loadUsers()}
@@ -47,8 +47,8 @@ function applyLanguage(){
 document.addEventListener('DOMContentLoaded',()=>{
   applyLanguage();
   const byId=id=>document.getElementById(id);
-  byId('registerBtn')?.addEventListener('click',register);
-  byId('loginBtn')?.addEventListener('click',login);
+  byId('registerBtn')?.addEventListener('click',e=>{e.preventDefault();register();});
+  byId('loginBtn')?.addEventListener('click',e=>{e.preventDefault();login();});
   document.querySelectorAll('.planBtn').forEach(b=>b.addEventListener('click',()=>buy(b.dataset.plan)));
   loadMe();
 });
