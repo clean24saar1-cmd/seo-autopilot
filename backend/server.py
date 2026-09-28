@@ -192,7 +192,7 @@ def audit(start,user_id,max_pages=25):
     result={"url":start,"score":score,"pages":pages,"issues":issues,"opportunities":opp,"action_plan":action_plan,
             "summary":{"pages":len(pages),"issues":len(issues),"high":high,"medium":med,"low":low}}
     c=db(); c.execute("insert into audits(user_id,url,created_at,score,pages,issues,data) values(?,?,?,?,?,?,?)",
-                      (user_id,start,time.time(),score,len(pages),len(issues),json.dumps(result)); c.commit(); c.close()
+                      (user_id,start,time.time(),score,len(pages),len(issues),json.dumps(result))); c.commit(); c.close()
     return result
 
 class Handler(BaseHTTPRequestHandler):
