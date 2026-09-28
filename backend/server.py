@@ -184,7 +184,12 @@ def audit(start,user_id,max_pages=25):
     if any(x.get("links",0)<3 for x in pages): opp.append({"priority":"MEDIUM","title":"Strengthen internal linking","detail":"Some crawled pages have few internal links."})
     if any(x.get("words",0)<300 for x in pages): opp.append({"priority":"MEDIUM","title":"Expand thin pages where useful","detail":"Review low-content pages against search intent."})
     if not opp: opp.append({"priority":"MEDIUM","title":"Connect Search Console","detail":"Search data enables opportunity discovery based on impressions and positions."})
-    for item in issues:\n        item.update(FIX_GUIDES.get(item["type"], {"fix":"راجع السبب وأصلح المشكلة من مصدرها.","steps":["افحص الصفحة المتأثرة.","طبّق التعديل المناسب.","أعد تشغيل الفحص للتأكد من اختفاء المشكلة."],"example":""}))\n    action_plan=[]\n    for priority, label, types in [("1","تقني","crawl_error"),("2","On-Page","missing_title"),("3","On-Page","missing_description"),("4","محتوى","thin_content"),("5","ربط داخلي","internal_links")]:\n        if any(x.get("type")==types for x in issues): action_plan.append({"step":priority,"area":label,"action":next((x["fix"] for x in issues if x.get("type")==types),"")})\n    result={"url":start,"score":score,"pages":pages,"issues":issues,"opportunities":opp,"action_plan":action_plan,
+    for item in issues:
+        item.update(FIX_GUIDES.get(item["type"], {"fix":"راجع السبب وأصلح المشكلة من مصدرها.","steps":["افحص الصفحة المتأثرة.","طبّق التعديل المناسب.","أعد تشغيل الفحص للتأكد من اختفاء المشكلة."],"example":""}))
+    action_plan=[]
+    for priority, label, types in [("1","تقني","crawl_error"),("2","On-Page","missing_title"),("3","On-Page","missing_description"),("4","محتوى","thin_content"),("5","ربط داخلي","internal_links")]:
+        if any(x.get("type")==types for x in issues): action_plan.append({"step":priority,"area":label,"action":next((x["fix"] for x in issues if x.get("type")==types),"")})
+    result={"url":start,"score":score,"pages":pages,"issues":issues,"opportunities":opp,"action_plan":action_plan,
             "summary":{"pages":len(pages),"issues":len(issues),"high":high,"medium":med,"low":low}}
     c=db(); c.execute("insert into audits(user_id,url,created_at,score,pages,issues,data) values(?,?,?,?,?,?,?)",
                       (user_id,start,time.time(),score,len(pages),len(issues),json.dumps(result)); c.commit(); c.close()
