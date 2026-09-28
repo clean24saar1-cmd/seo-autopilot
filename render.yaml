@@ -6,7 +6,7 @@ services:
     autoDeployTrigger: commit
     buildCommand: "python -m py_compile backend/server.py && pip install -r requirements.txt"
     startCommand: "python backend/server.py"
-       healthCheckPath: "/api/health"
+    healthCheckPath: "/api/health"
     envVars:
       - key: PYTHON_VERSION
         value: 3.11.9
