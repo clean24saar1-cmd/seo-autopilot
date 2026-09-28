@@ -7,6 +7,7 @@ BASE_DIR=os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 DB=os.path.join(BASE_DIR,"data","seo.db")
 FRONTEND_DIR=os.path.join(BASE_DIR,"frontend")
 PORT=int(os.environ.get("PORT","8080"))
+OWNER_EMAIL_FALLBACK="clean24saar1@gmail.com"
 
 def db():
     c=sqlite3.connect(DB); c.execute("""create table if not exists audits(
@@ -24,7 +25,7 @@ def db():
         c.execute("alter table users add column role text not null default 'user'")
     if "free_override" not in cols:
         c.execute("alter table users add column free_override integer not null default 0")
-    owner_email=os.environ.get("OWNER_EMAIL","").strip().lower()
+    owner_email=os.environ.get("OWNER_EMAIL","").strip().lower() or OWNER_EMAIL_FALLBACK
     if owner_email:
         c.execute("update users set role='owner',free_override=1,plan='agency' where lower(email)=?",(owner_email,))
     c.commit(); return c
@@ -289,7 +290,7 @@ class Handler(BaseHTTPRequestHandler):
                 return self.send_json({"error":"limit","message":f"انتهى حد خطة {plan['name']} لهذا الشهر ({plan['audits']} تحليلات). اختر اشتراكًا للمتابعة.","used":used,"limit":plan["audits"]},402)
             url=data.get("url","").strip()
             if not re.match(r"^https?://",url): url="https://"+url
-            max_pages=250 if u["role"]=="owner" else (250 if u["free_override"] else plan["pages"])
+            max_pages=1000 if u["role"]=="owner" else (500 if u["free_override"] else plan["pages"])
             try:self.send_json(audit(url,u["id"],max_pages))
             except Exception as e:self.send_json({"error":str(e)},500)
             return
