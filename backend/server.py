@@ -183,7 +183,8 @@ class Handler(BaseHTTPRequestHandler):
     def do_POST(self):
         path=urllib.parse.urlparse(self.path).path
         n=int(self.headers.get("Content-Length","0"))
-        data=json.loads(self.rfile.read(n) or b"{}")
+        raw_body=self.rfile.read(n) if path=="/api/stripe/webhook" else b""
+        data={} if path=="/api/stripe/webhook" else json.loads(raw_body or b"{}")
         if path=="/api/register":
             email=data.get("email","").strip().lower(); password=data.get("password","")
             if not re.match(r"^[^@\s]+@[^@\s]+\.[^@\s]+$",email) or len(password)<8:
@@ -219,7 +220,7 @@ class Handler(BaseHTTPRequestHandler):
             except urllib.error.HTTPError as e:
                 return self.send_json({"error":"stripe_error","message":e.read().decode()[:500]},500)
         if path=="/api/stripe/webhook":
-            raw=self.rfile.read(n); secret=os.environ.get("STRIPE_WEBHOOK_SECRET",""); sig=self.headers.get("Stripe-Signature","")
+            raw=raw_body; secret=os.environ.get("STRIPE_WEBHOOK_SECRET",""); sig=self.headers.get("Stripe-Signature","")
             if not secret:return self.send_json({"error":"webhook_not_configured"},503)
             try:
                 parts=dict(x.split("=",1) for x in sig.split(",") if "=" in x); ts=parts.get("t",""); v1=parts.get("v1","")
