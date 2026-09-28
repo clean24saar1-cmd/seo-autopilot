@@ -4,7 +4,7 @@ from html.parser import HTMLParser
 from collections import deque, Counter
 
 BASE_DIR=os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-DB=os.path.join(BASE_DIR,"data","seo.db")
+DB=os.environ.get("SEO_DB_PATH") or os.path.join("/tmp","seo-autopilot.db")
 os.makedirs(os.path.dirname(DB),exist_ok=True)
 FRONTEND_DIR=os.path.join(BASE_DIR,"frontend")
 PORT=int(os.environ.get("PORT","8080"))
@@ -328,6 +328,11 @@ class Handler(BaseHTTPRequestHandler):
 
 if __name__=="__main__":
     os.makedirs(os.path.dirname(DB),exist_ok=True)
-    db().close()
-    print(f"SEO Autopilot: http://127.0.0.1:{PORT}")
+    try:
+        db().close()
+    except Exception:
+        import traceback
+        traceback.print_exc()
+        raise
+    print(f"SEO Autopilot starting on 0.0.0.0:{PORT}",flush=True)
     ThreadingHTTPServer(("0.0.0.0",PORT),Handler).serve_forever()
