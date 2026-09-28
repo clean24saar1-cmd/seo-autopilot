@@ -216,7 +216,7 @@ class Handler(BaseHTTPRequestHandler):
         if path=="/api/register":
             email=data.get("email","").strip().lower(); password=data.get("password","")
             if not re.match(r"^[^@\s]+@[^@\s]+\.[^@\s]+$",email) or len(password)<8:
-                return self.send_json({"error":"invalid","message":("البريد الإلكتروني غير صحيح." if not re.match(r"^[^@\\s]+@[^@\\s]+\\.[^@\\s]+$",email) else "كلمة المرور وصلت بطول "+str(len(password))+" أحرف. يجب أن تكون 8 أحرف على الأقل.")},400)
+                return self.send_json({"error":"invalid","message":("البريد الإلكتروني غير صحيح." if not re.match(r"^[^@\s]+@[^@\s]+\.[^@\s]+$",email) else "كلمة المرور وصلت بطول "+str(len(password))+" أحرف. يجب أن تكون 8 أحرف على الأقل.")},400)
             salt,digest=hash_password(password); c=db()
             try:
                 c.execute("insert into users(email,password_hash,salt,plan,created_at) values(?,?,?,?,?)",(email,digest,salt,"free",time.time())); c.commit()
