@@ -170,10 +170,15 @@ def audit(start,user_id,max_pages=25):
     return result
 
 class Handler(BaseHTTPRequestHandler):
-    def send_json(self,obj,code=200):
+    def send_json(self,obj,code=200,cookie_uid=None):
         b=json.dumps(obj,ensure_ascii=False).encode()
         self.send_response(code); self.send_header("Content-Type","application/json; charset=utf-8")
-        self.send_header("Access-Control-Allow-Origin","*"); self.send_header("Access-Control-Allow-Headers","Content-Type"); self.end_headers(); self.wfile.write(b)
+        self.send_header("Access-Control-Allow-Origin","*"); self.send_header("Access-Control-Allow-Headers","Content-Type")
+        if cookie_uid is not None:
+            secret=os.environ.get("SESSION_SECRET","change-this-secret"); mac=hmac.new(secret.encode(),str(cookie_uid).encode(),hashlib.sha256).hexdigest()
+            token=base64.urlsafe_b64encode(f"{cookie_uid}.{mac}".encode()).decode().rstrip("=")
+            self.send_header("Set-Cookie",f"session={token}; Path=/; HttpOnly; SameSite=Lax; Secure")
+        self.end_headers(); self.wfile.write(b)
     def do_OPTIONS(self): self.send_response(204); self.send_header("Access-Control-Allow-Origin","*"); self.send_header("Access-Control-Allow-Headers","Content-Type"); self.end_headers()
     def do_POST(self):
         path=urllib.parse.urlparse(self.path).path
@@ -189,14 +194,48 @@ class Handler(BaseHTTPRequestHandler):
                 uid=c.execute("select id from users where email=?",(email,)).fetchone()[0]
             except sqlite3.IntegrityError:
                 c.close(); return self.send_json({"error":"exists","message":"هذا البريد مسجل بالفعل."},409)
-            c.close(); set_cookie(self,uid); return self.send_json({"ok":True,"user":{"id":uid,"email":email,"plan":"free"}})
+            c.close(); return self.send_json({"ok":True,"user":{"id":uid,"email":email,"plan":"free"}},cookie_uid=uid)
         if path=="/api/login":
             email=data.get("email","").strip().lower(); password=data.get("password",""); c=db()
             r=c.execute("select id,email,password_hash,salt,plan,stripe_customer_id,stripe_subscription_id,subscription_status from users where email=?",(email,)).fetchone(); c.close()
             if not r or not verify_password(password,r[3],r[2]): return self.send_json({"error":"invalid","message":"البريد أو كلمة المرور غير صحيحة."},401)
-            set_cookie(self,r[0]); return self.send_json({"ok":True,"user":{"id":r[0],"email":r[1],"plan":r[4],"stripe_customer_id":r[5],"stripe_subscription_id":r[6],"subscription_status":r[7]}})
+            return self.send_json({"ok":True,"user":{"id":r[0],"email":r[1],"plan":r[4],"stripe_customer_id":r[5],"stripe_subscription_id":r[6],"subscription_status":r[7]}},cookie_uid=r[0])
         if path=="/api/logout":
             self.send_response(200); self.send_header("Set-Cookie","session=; Path=/; Max-Age=0; HttpOnly; SameSite=Lax; Secure"); self.send_header("Content-Type","application/json"); self.end_headers(); self.wfile.write(b'{"ok":true}'); return
+        if path=="/api/checkout":
+            u=require_user(self)
+            if not u:return
+            plan_name=data.get("plan","")
+            price=os.environ.get({"starter":"STRIPE_PRICE_STARTER","pro":"STRIPE_PRICE_PRO","agency":"STRIPE_PRICE_AGENCY"}.get(plan_name,""),"")
+            key=os.environ.get("STRIPE_SECRET_KEY","")
+            if not price or not key:
+                return self.send_json({"error":"billing_not_configured","message":"الدفع يحتاج ربط Stripe: STRIPE_SECRET_KEY وStripe Price IDs في Render."},503)
+            base=os.environ.get("APP_URL","").rstrip("/") or ("https://"+self.headers.get("Host",""))
+            payload=urllib.parse.urlencode({"mode":"subscription","line_items[0][price]":price,"line_items[0][quantity]":"1","success_url":base+"/?checkout=success","cancel_url":base+"/?checkout=cancel","client_reference_id":str(u["id"]),"customer_email":u["email"],"metadata[user_id]":str(u["id"]),"metadata[plan]":plan_name,"subscription_data[metadata][user_id]":str(u["id"]),"subscription_data[metadata][plan]":plan_name}).encode()
+            req=urllib.request.Request("https://api.stripe.com/v1/checkout/sessions",data=payload,method="POST",headers={"Authorization":"Bearer "+key,"Content-Type":"application/x-www-form-urlencoded"})
+            try:
+                with urllib.request.urlopen(req,timeout=20) as resp: checkout=json.loads(resp.read().decode())
+                return self.send_json({"url":checkout["url"]})
+            except urllib.error.HTTPError as e:
+                return self.send_json({"error":"stripe_error","message":e.read().decode()[:500]},500)
+        if path=="/api/stripe/webhook":
+            raw=self.rfile.read(n); secret=os.environ.get("STRIPE_WEBHOOK_SECRET",""); sig=self.headers.get("Stripe-Signature","")
+            if not secret:return self.send_json({"error":"webhook_not_configured"},503)
+            try:
+                parts=dict(x.split("=",1) for x in sig.split(",") if "=" in x); ts=parts.get("t",""); v1=parts.get("v1","")
+                expected=hmac.new(secret.encode(),(ts+"."+raw.decode()).encode(),hashlib.sha256).hexdigest()
+                if not ts or not v1 or not hmac.compare_digest(expected,v1) or abs(time.time()-int(ts))>300:raise ValueError("Invalid signature")
+                event=json.loads(raw); typ=event.get("type",""); obj=event.get("data",{}).get("object",{}); meta=obj.get("metadata",{})
+                uid=meta.get("user_id") or obj.get("client_reference_id"); plan=meta.get("plan","free")
+                if uid:
+                    c=db()
+                    if typ=="checkout.session.completed":
+                        c.execute("update users set plan=?,stripe_customer_id=?,stripe_subscription_id=?,subscription_status=? where id=?",(plan,obj.get("customer"),obj.get("subscription"),"active",int(uid)))
+                    elif typ in ("customer.subscription.updated","customer.subscription.deleted"):
+                        status=obj.get("status",""); c.execute("update users set plan=?,stripe_customer_id=?,stripe_subscription_id=?,subscription_status=? where id=?",(plan if status in ("active","trialing") else "free",obj.get("customer"),obj.get("id"),status,int(uid)))
+                    c.commit();c.close()
+                return self.send_json({"received":True})
+            except Exception as e:return self.send_json({"error":"invalid_webhook","message":str(e)},400)
         if path=="/api/audit":
             u=require_user(self)
             if not u:return
