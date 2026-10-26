@@ -163,6 +163,10 @@ for select to authenticated using (true);
 create policy "Users update their own profile" on public.profiles
 for update to authenticated using (auth.uid() = id) with check (auth.uid() = id);
 
+-- Prevent self-promotion by limiting profile updates to non-privileged columns.
+revoke update on public.profiles from authenticated;
+grant update (display_name, avatar_url, preferred_language) on public.profiles to authenticated;
+
 create policy "Signed-in users can view active public rooms" on public.rooms
 for select to authenticated using (is_active = true and visibility = 'public');
 create policy "Room owners can create rooms" on public.rooms
@@ -173,7 +177,7 @@ for update to authenticated using (auth.uid() = owner_id) with check (auth.uid()
 create policy "Members can view room membership" on public.room_members
 for select to authenticated using (auth.uid() = user_id);
 create policy "Users can join as themselves" on public.room_members
-for insert to authenticated with check (auth.uid() = user_id);
+for insert to authenticated with check (auth.uid() = user_id and is_speaker = false);
 create policy "Users can leave as themselves" on public.room_members
 for delete to authenticated using (auth.uid() = user_id);
 
